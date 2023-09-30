@@ -1,0 +1,18 @@
+{
+    "username": "Username",
+    "attachments": [
+        {
+            "color": "#ffffff",
+            "text": "This is the message",
+            "author_name": "Author",
+            "title": "Title",
+            "fields": [
+                {
+                    "short":true,
+                    "title":"Value",
+                    "value":""
+                }
+            ]
+        }
+    ]
+}
