@@ -4,6 +4,7 @@ use anyhow::Context;
 use clap::{ArgAction, Parser};
 use reqwest;
 use reqwest::blocking::Client;
+use reqwest::blocking::RequestBuilder;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
@@ -33,7 +34,7 @@ pub struct WebHookTemplate {
 struct ReqwPayload(Value);
 
 #[derive(Parser)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None, arg_required_else_help(true))]
 pub struct Cli {
     /// Webhook to execute
     pub webhook: Option<String>,
@@ -72,8 +73,9 @@ impl Cli {
             let json_content: WebHookTemplate =
                 serde_json::from_str(&content).map_err(|e| anyhow!(e))?;
 
-            self.build_request(json_content, &c)
-                .map_err(|e| anyhow!(e))?
+            self.build_request(json_content, &c)?
+                .send()
+                .context("request failed")?;
         }
 
         if let Some(vec) = &self.inject {
@@ -94,14 +96,19 @@ impl Cli {
             .map(|f| f.path())
             .collect();
 
+        match paths.len() {
+            0 => println!("No webhooks were found."),
+            _ => println!("The following webhooks were found:"),
+        };
+
         for path in paths {
-            println!("{}", path.display());
+            println!("- {}", path.file_stem().unwrap().to_str().unwrap());
         }
 
         Ok(())
     }
 
-    pub fn build_request(&self, w: WebHookTemplate, c: &Configs) -> Result<(), Error> {
+    pub fn build_request(&self, w: WebHookTemplate, c: &Configs) -> Result<RequestBuilder, Error> {
         let client = Client::builder()
             .user_agent(c.user_agent)
             .danger_accept_invalid_certs(!c.ssl_verify)
@@ -115,9 +122,7 @@ impl Cli {
             .body(body);
 
         println!("{:?}", res);
-
-        res.send().context("request failed")?;
-        Ok(())
+        return Ok(res);
     }
 }
 
