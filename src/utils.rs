@@ -52,13 +52,13 @@ impl Cli {
         if self.list {
             if self.webhook.is_some() || self.inject.is_some() {
                 Err(Error::InvalidArgsError)?
-            }
-        } else {
-            match self.list_hooks(&c) {
-                Ok(_) => true,
-                Err(e) => Err(e)?,
+            } else {
+                match self.list_hooks(&c) {
+                    Ok(_) => true,
+                    Err(e) => Err(e)?,
+                };
             };
-        };
+        }
 
         if let Some(webhook) = &self.webhook {
             let mut filename = String::from(webhook);
