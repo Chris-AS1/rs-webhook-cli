@@ -43,7 +43,7 @@ pub struct Cli {
     #[arg(short, long, action = ArgAction::SetTrue)]
     pub list: bool,
 
-    /// Value to inject, starting from $1 ... $n
+    /// Value to inject, starting from $1...$n
     #[arg(short, action = ArgAction::Append, value_name="VALUE")]
     pub inject: Option<Vec<String>>,
 
