@@ -68,7 +68,11 @@ impl Cli {
         if let Some(webhook) = &self.webhook {
             let mut filename = String::from(webhook);
             if filename.ends_with(".json") {
-                filename = String::from(filename.strip_suffix(".json").unwrap());
+                filename = String::from(
+                    filename
+                        .strip_suffix(".json")
+                        .context("error while stripping suffix")?,
+                );
             }
 
             let mut content = fs::read_to_string(format!("{}/{}.json", c.inventory_path, filename))
@@ -76,16 +80,16 @@ impl Cli {
 
             if let Some(vec) = &self.inject {
                 if self.verbose {
-                    println!("Injecting values: {:?}", vec);
+                    println!("Injecting values into template: {:?}", vec);
                 }
 
                 vec.iter().enumerate().for_each(|(i, x)| {
                     content = content.replace(format!("${}", i + 1).as_str(), x);
                 });
+            }
 
-                if self.verbose {
-                    println!("Request after value injection: {}", content);
-                }
+            if self.verbose {
+                println!("Template content: {}", content);
             }
 
             let json_content: WebHookTemplate =
@@ -116,7 +120,9 @@ impl Cli {
         };
 
         for path in paths {
-            println!("- {}", path.file_stem().unwrap().to_str().unwrap());
+            if let Some(stem) = path.file_stem() {
+                println!("- {}", stem.to_str().unwrap_or_default());
+            }
         }
 
         Ok(())
@@ -127,7 +133,7 @@ impl Cli {
             .user_agent(c.user_agent)
             .danger_accept_invalid_certs(!c.ssl_verify)
             .build()
-            .unwrap();
+            .context("couldn't build the request")?;
 
         let body = serde_json::to_string(&w.data).context("error while serializing")?;
 
