@@ -95,9 +95,23 @@ impl Cli {
             let json_content: WebHookTemplate =
                 serde_json::from_str(&content).map_err(|e| anyhow!(e))?;
 
-            self.build_request(json_content, &c)?
+            let res = self
+                .build_request(json_content, &c)?
                 .send()
                 .context("request failed")?;
+
+            if res.status() == reqwest::StatusCode::OK {
+                // TODO add verbosity levels
+                println!("Response OK");
+                if self.verbose {
+                    println!("{}", res.text().context("failed extracting reponse text")?);
+                }
+            } else {
+                eprintln!("Response ERR");
+                if self.verbose {
+                    eprintln!("{}", res.text().context("failed extracting reponse text")?);
+                }
+            }
         }
 
         Ok(())
@@ -141,7 +155,10 @@ impl Cli {
             .post(reqwest::Url::parse(w.url.as_str()).context("couldn't parse URL")?)
             .body(body);
 
-        println!("{:?}", res);
+        if self.verbose {
+            println!("{:?}", res);
+        }
+
         return Ok(res);
     }
 }
