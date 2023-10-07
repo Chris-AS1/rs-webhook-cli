@@ -43,9 +43,13 @@ pub struct Cli {
     #[arg(short, long, action = ArgAction::SetTrue)]
     pub list: bool,
 
-    /// Value to inject, will be treated in order
+    /// Value to inject, starting from $1 ... $n
     #[arg(short, action = ArgAction::Append, value_name="VALUE")]
     pub inject: Option<Vec<String>>,
+
+    /// Enables enhanced logging
+    #[arg(short, long, action = ArgAction::SetTrue)]
+    pub verbose: bool,
 }
 
 impl Cli {
@@ -67,8 +71,22 @@ impl Cli {
                 filename = String::from(filename.strip_suffix(".json").unwrap());
             }
 
-            let content = fs::read_to_string(format!("./inventory/{}.json", filename))
+            let mut content = fs::read_to_string(format!("{}/{}.json", c.inventory_path, filename))
                 .map_err(|e| anyhow!(e))?;
+
+            if let Some(vec) = &self.inject {
+                if self.verbose {
+                    println!("Injecting values: {:?}", vec);
+                }
+
+                vec.iter().enumerate().for_each(|(i, x)| {
+                    content = content.replace(format!("${}", i + 1).as_str(), x);
+                });
+
+                if self.verbose {
+                    println!("Request after value injection: {}", content);
+                }
+            }
 
             let json_content: WebHookTemplate =
                 serde_json::from_str(&content).map_err(|e| anyhow!(e))?;
@@ -76,10 +94,6 @@ impl Cli {
             self.build_request(json_content, &c)?
                 .send()
                 .context("request failed")?;
-        }
-
-        if let Some(vec) = &self.inject {
-            println!("Injecting values: {:?}", vec);
         }
 
         Ok(())
