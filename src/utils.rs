@@ -2,6 +2,7 @@ use crate::error::Error;
 use anyhow::anyhow;
 use anyhow::Context;
 use clap::{ArgAction, Parser};
+use config;
 use reqwest;
 use reqwest::blocking::Client;
 use reqwest::blocking::RequestBuilder;
@@ -12,16 +13,23 @@ use std::{fs, path::PathBuf};
 
 #[derive(Debug)]
 pub struct Configs {
-    inventory_path: &'static str,
-    user_agent: &'static str,
+    inventory_path: String,
+    user_agent: String,
     ssl_verify: bool,
 }
 
 #[derive(Debug)]
 pub struct ConfigsBuilder {
-    inventory_path: &'static str,
-    user_agent: &'static str,
+    inventory_path: String,
+    user_agent: String,
     ssl_verify: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ConfigsEnvironment {
+    inventory_path: Option<String>,
+    user_agent: Option<String>,
+    ssl_verify: Option<bool>,
 }
 
 #[derive(Deserialize, Debug, Serialize)]
@@ -132,7 +140,7 @@ impl Cli {
     }
 
     fn list_hooks(&self, c: &Configs) -> Result<(), Error> {
-        let paths: Vec<PathBuf> = fs::read_dir(c.inventory_path)
+        let paths: Vec<PathBuf> = fs::read_dir(&c.inventory_path)
             .map_err(|e| anyhow!(e))?
             .filter_map(|f| f.ok())
             .filter(|f| match f.path().extension() {
@@ -158,7 +166,7 @@ impl Cli {
 
     pub fn build_request(&self, w: WebHookTemplate, c: &Configs) -> Result<RequestBuilder, Error> {
         let client = Client::builder()
-            .user_agent(c.user_agent)
+            .user_agent(&c.user_agent)
             .danger_accept_invalid_certs(!c.ssl_verify)
             .build()
             .context("couldn't build the request")?;
@@ -180,23 +188,30 @@ impl Cli {
 impl Default for ConfigsBuilder {
     fn default() -> Self {
         Self {
-            inventory_path: "./inventory/",
-            user_agent: concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")),
+            inventory_path: "./inventory/".to_string(),
+            user_agent: concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")).to_string(),
             ssl_verify: true,
         }
     }
 }
-
 impl ConfigsBuilder {
-    pub fn new() -> ConfigsBuilder {
-        ConfigsBuilder::default()
+    pub fn new() -> Result<ConfigsBuilder, Error> {
+        let c = ConfigsBuilder::default();
+        Ok(c)
     }
 
-    pub fn inventory_path(mut self, path: &'static str) -> ConfigsBuilder {
+    pub fn from_env(mut self, c: ConfigsEnvironment) -> ConfigsBuilder {
+        if let Some(inv) = c.inventory_path {
+            self = self.inventory_path(inv);
+        }
+        self
+    }
+
+    pub fn inventory_path(mut self, path: String) -> ConfigsBuilder {
         self.inventory_path = path;
         self
     }
-    pub fn user_agent(mut self, user_agent: &'static str) -> ConfigsBuilder {
+    pub fn user_agent(mut self, user_agent: String) -> ConfigsBuilder {
         self.user_agent = user_agent;
         self
     }
@@ -212,5 +227,21 @@ impl ConfigsBuilder {
             user_agent: self.user_agent,
             ssl_verify: self.ssl_verify,
         }
+    }
+}
+
+impl ConfigsEnvironment {
+    pub fn new() -> Result<ConfigsEnvironment, Error> {
+        let mut env_configs = config::Config::builder();
+        env_configs =
+            env_configs.add_source(config::Environment::default().prefix("APP").separator("__"));
+
+        let from_env_configs: ConfigsEnvironment = env_configs
+            .build()
+            .context("couldn't build configs from environment")?
+            .try_deserialize::<ConfigsEnvironment>()
+            .map_err(|e| anyhow!(e))?;
+
+        Ok(from_env_configs)
     }
 }
