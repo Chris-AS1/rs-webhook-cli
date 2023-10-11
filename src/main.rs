@@ -10,6 +10,7 @@ fn main() -> Result<(), Error> {
 
     if let Err(e) = args.run(configs) {
         eprintln!("The program encountered an error: {}", e);
+        std::process::exit(1);
     }
 
     Ok(())

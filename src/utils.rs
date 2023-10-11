@@ -43,6 +43,10 @@ pub struct Cli {
     #[arg(short, long, action = ArgAction::SetTrue)]
     pub list: bool,
 
+    /// URL value, replaces $URL on the template
+    #[arg(short, action = ArgAction::Set, value_name="LINK")]
+    pub url: Option<String>,
+
     /// Value to inject, starting from $1...$n
     #[arg(short, action = ArgAction::Append, value_name="VALUE")]
     pub inject: Option<Vec<String>>,
@@ -78,6 +82,16 @@ impl Cli {
             let mut content = fs::read_to_string(format!("{}/{}.json", c.inventory_path, filename))
                 .map_err(|e| anyhow!(e))?;
 
+            // URL injection
+            if let Some(u) = &self.url {
+                if self.verbose {
+                    println!("Setting the URL value: {:?}", u);
+                }
+
+                content = content.replace("$URL", u);
+            }
+
+            // Inject $1..n values
             if let Some(vec) = &self.inject {
                 if self.verbose {
                     println!("Injecting values into template: {:?}", vec);
@@ -156,7 +170,7 @@ impl Cli {
             .body(body);
 
         if self.verbose {
-            println!("{:?}", res);
+            println!("Built Response: {:?}", res);
         }
 
         return Ok(res);
