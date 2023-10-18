@@ -32,7 +32,7 @@ pub struct ConfigsEnvironment {
     ssl_verify: Option<bool>,
 }
 
-#[derive(Deserialize, Debug, Serialize)]
+#[derive(Deserialize, Debug, Serialize, Clone)]
 pub struct WebHookTemplate {
     url: String,
     data: Value,
@@ -51,6 +51,10 @@ pub struct Cli {
     #[arg(short, long, action = ArgAction::SetTrue)]
     pub list: bool,
 
+    /// Do not send the actual request
+    #[arg(short, long, action = ArgAction::SetTrue)]
+    pub simulate: bool,
+
     /// URL value, replaces $URL on the template
     #[arg(short, action = ArgAction::Set, value_name="LINK")]
     pub url: Option<String>,
@@ -68,62 +72,19 @@ impl Cli {
     pub fn run(&self, c: Configs) -> Result<(), Error> {
         if self.list {
             if self.webhook.is_some() || self.inject.is_some() {
-                Err(Error::InvalidArgsError)?
-            } else {
-                match self.list_hooks(&c) {
-                    Ok(_) => true,
-                    Err(e) => Err(e)?,
-                };
-            };
+                return Err(Error::InvalidArgsError);
+            }
+
+            self.list_hooks(&c)?;
         }
 
         if let Some(webhook) = &self.webhook {
-            let mut filename = String::from(webhook);
-            if filename.ends_with(".json") {
-                filename = String::from(
-                    filename
-                        .strip_suffix(".json")
-                        .context("error while stripping suffix")?,
-                );
-            }
+            let req = self.build_webhook_request(webhook.to_string(), c)?.unwrap();
 
-            let mut content = fs::read_to_string(format!("{}/{}.json", c.inventory_path, filename))
-                .map_err(|e| anyhow!(e))?;
+            let res = req.send().context("request failed")?;
 
-            // URL injection
-            if let Some(u) = &self.url {
-                if self.verbose {
-                    println!("Setting the URL value: {:?}", u);
-                }
-
-                content = content.replace("$URL", u);
-            }
-
-            // Inject $1..n values
-            if let Some(vec) = &self.inject {
-                if self.verbose {
-                    println!("Injecting values into template: {:?}", vec);
-                }
-
-                vec.iter().enumerate().for_each(|(i, x)| {
-                    content = content.replace(format!("${}", i + 1).as_str(), x);
-                });
-            }
-
-            if self.verbose {
-                println!("Template content: {}", content);
-            }
-
-            let json_content: WebHookTemplate =
-                serde_json::from_str(&content).map_err(|e| anyhow!(e))?;
-
-            let res = self
-                .build_request(json_content, &c)?
-                .send()
-                .context("request failed")?;
-
+            // TODO add verbosity levels
             if res.status() == reqwest::StatusCode::OK {
-                // TODO add verbosity levels
                 println!("Response OK");
                 if self.verbose {
                     println!("{}", res.text().context("failed extracting reponse text")?);
@@ -137,6 +98,56 @@ impl Cli {
         }
 
         Ok(())
+    }
+
+    fn build_webhook_request(
+        &self,
+        webhook: String,
+        c: Configs,
+    ) -> Result<Option<RequestBuilder>, Error> {
+        let mut filename = webhook;
+        if filename.ends_with(".json") {
+            filename = String::from(
+                filename
+                    .strip_suffix(".json")
+                    .context("error while stripping suffix")?,
+            );
+        }
+
+        let mut content = fs::read_to_string(format!("{}/{}.json", c.inventory_path, filename))
+            .map_err(|e| anyhow!(e))?;
+
+        // URL injection
+        if let Some(u) = &self.url {
+            content = content.replace("$URL", u);
+        }
+
+        // Inject $1..n values
+        if let Some(vec) = &self.inject {
+            if self.verbose {
+                println!("Injecting values into template: {:?}", vec);
+            }
+
+            vec.iter().enumerate().for_each(|(i, x)| {
+                content = content.replace(format!("${}", i + 1).as_str(), x);
+            });
+        }
+
+        let json_content: WebHookTemplate =
+            serde_json::from_str(&content).map_err(|e| anyhow!(e))?;
+
+        // Builds the request
+        let req = self.build_request(json_content.clone(), &c)?;
+
+        if self.verbose {
+            println!("Template content: {:?}", json_content);
+        }
+
+        if self.simulate {
+            return Ok(None);
+        }
+
+        Ok(Some(req))
     }
 
     fn list_hooks(&self, c: &Configs) -> Result<(), Error> {
@@ -176,10 +187,6 @@ impl Cli {
         let res = client
             .post(reqwest::Url::parse(w.url.as_str()).context("couldn't parse URL")?)
             .body(body);
-
-        if self.verbose {
-            println!("Built Response: {:?}", res);
-        }
 
         return Ok(res);
     }
